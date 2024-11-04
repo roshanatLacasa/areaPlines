@@ -1,0 +1,326 @@
+"""Area\nPLines"""
+
+__title__ = "Area\nPLines"
+__author__= "JK Roshan"
+
+####################################
+
+import os.path
+import os.path as op
+
+# pylint: disable=E0401,W0703,C0103
+# import ntpath
+# from pathlib import Path
+from collections import defaultdict
+
+from fractions import Fraction
+import sys
+
+import xlsxwriter
+pyt_path = r'C:\Program Files (x86)\IronPython 2.7\Lib'
+sys.path.append(pyt_path)
+import codecs
+
+from sgmllib import SGMLParser
+import re
+
+import itertools
+from itertools import groupby
+from itertools import islice
+from itertools import chain
+
+from collections import namedtuple
+from collections import Counter
+from collections import OrderedDict
+
+from pyrevit import framework
+from pyrevit import revit, UI, DB
+from pyrevit import forms
+from pyrevit import script
+from pyrevit import System
+from pyrevit import coreutils
+from pyrevit import HOST_APP
+logger = script.get_logger()
+
+from pyrevit.revit import db
+
+import math
+import re
+
+import clr
+clr.AddReference("RevitServices")                       
+import RevitServices                                    
+from RevitServices.Persistence import DocumentManager    
+from RevitServices.Transactions import TransactionManager   
+
+clr.AddReference('RevitAPI')
+from Autodesk.Revit.DB import *
+from Autodesk.Revit.DB import XYZ
+
+clr.AddReference('RevitNodes')
+import Revit
+clr.ImportExtensions(Revit.Elements)
+clr.ImportExtensions(Revit.GeometryConversion)
+
+clr.AddReference('DSCoreNodes')
+import DSCore
+from DSCore import *
+
+clr.AddReference('System')
+from System.Collections.Generic import *
+
+clr.AddReference('ProtoGeometry')
+from Autodesk.DesignScript.Geometry import *
+
+import Autodesk
+from Autodesk.Revit.DB import *
+
+import Autodesk.Revit.DB as DB
+from  Autodesk.Revit.DB import FilteredElementCollector, BuiltInCategory, BuiltInParameter, Transaction, TransactionGroup, Workset
+from Autodesk.Revit.DB import InstanceBinding, TypeBinding, FilteredElementCollector, Transaction,  ElementId, Wall
+from Autodesk.Revit.DB import FilteredWorksetCollector, WorksetKind
+
+from Autodesk.Revit.DB import Line, Arc, XYZ, SketchPlane, Plane, Transaction
+
+from Autodesk.Revit.DB.Plumbing import *
+from Autodesk.Revit.DB.Mechanical import *
+
+doc = __revit__.ActiveUIDocument.Document
+uidoc = __revit__.ActiveUIDocument
+
+out = script.get_output()
+out.add_style('body{font-family: CenturyGothic; font-size: 12pt; }')
+
+from rpw.ui.forms import (FlexForm, Label, ComboBox, TextBox, TextBox,Separator, Button, CheckBox)
+
+
+# Current File Name
+current_file_name = doc.Title
+
+# Current File Version
+current_file_version = __revit__.Application.VersionNumber
+# print(current_file_version)
+# print(type(current_file_version))
+
+####################################################################################################################
+
+def all_elements_of_category(category):
+	return FilteredElementCollector(doc).OfCategory(category).WhereElementIsNotElementType().ToElements()
+
+# walls = FilteredElementCollector(doc).OfClass(Wall).WhereElementIsNotElementType()
+
+def GetCurvePoints(curve):
+	return curve.GetEndPoint(0).ToPoint(), curve.GetEndPoint(1).ToPoint()
+
+# def get_wall_level(wall):
+#     # Get the wall's parameter for the level
+#     level_param = wall.get_Parameter(BuiltInParameter.WALL_BASE_CONSTRAINT)
+#     if level_param is not None and level_param.HasValue:
+#         level_id = level_param.AsElementId()
+#         level = doc.GetElement(level_id)
+#         return level
+#     return None
+
+
+# point, curveEndPoints, curve
+
+# def get_Wall_Curve_Data(wall):
+#     loc = wall.Location
+#     if loc.ToString() == 'Autodesk.Revit.DB.LocationCurve':
+#         return GetCurvePoints(wall.Location.Curve)
+#         # try: return GetCurvePoints(loc.Curve), loc.Curve.ToProtoType()
+#         # except: return GetCurvePoints(loc.Curve)[0]
+
+wWalls = all_elements_of_category(BuiltInCategory.OST_Walls)
+# print(wWalls)
+
+wWallCurves = []
+for wall in wWalls:
+    try:
+        temp = wall.Location.Curve
+    except:
+        temp = "None"
+    wWallCurves.append(temp)
+
+# print(wWallCurves)
+
+# Filter Walls with Geometry filtered
+
+wWallCurvesFilteredIdx = [i for i, v in enumerate(wWallCurves) if v != "None"]
+wWallCurvesFiltered = [wWallCurves[i] for i in wWallCurvesFilteredIdx]
+wWallsFiltered = [wWalls[i] for i in wWallCurvesFilteredIdx]
+
+# print(wWallCurvesFiltered)
+# print(wWallsFiltered)
+
+######################################################################
+# Filtered Walls and Curves for Evaluation
+
+def get_wall_level(wall):
+    # Get the wall's parameter for the level
+    level_param = wall.get_Parameter(BuiltInParameter.WALL_BASE_CONSTRAINT)
+    if level_param is not None and level_param.HasValue:
+        level_id = level_param.AsElementId()
+        level = doc.GetElement(level_id)
+        return level
+    return None
+
+finalWallCurves = []
+finalWallPlanes = []
+finalWallLevels = []
+
+
+for wall in wWallsFiltered:
+    try:
+        temp = wall.Location.Curve
+        temp_wallLevel = get_wall_level(wall)
+        temp_elevation = temp_wallLevel.Elevation
+        normal = XYZ(0,0,1)
+        origin = XYZ(0, 0, temp_elevation)
+        temp_plane = Plane.CreateByNormalAndOrigin(normal, origin)
+    except:
+        temp = "None"
+        temp_plane = "None"
+        temp_wallLevel = "None"   
+
+    finalWallCurves.append(temp)
+    finalWallPlanes.append(temp_plane)
+    finalWallLevels.append(temp_wallLevel)
+
+# print(finalWallCurves)
+# print(finalWallPlanes)
+# print(finalWallLevels)
+
+wallLevelNames = [wallLevel.Name for wallLevel in finalWallLevels]
+# print(wallLevelNames)
+
+def get_all_area_plan_views():
+    # Use FilteredElementCollector to collect area plan views
+    collector = FilteredElementCollector(doc).OfClass(View)
+    area_plan_views = []
+    area_plan_levels = []
+
+    for view in collector:
+        if isinstance(view, ViewPlan) and view.ViewType == ViewType.AreaPlan:
+            level_id = view.GenLevel.Id
+            level = doc.GetElement(level_id)
+            area_plan_views.append(view)
+            area_plan_levels.append(level)
+    
+    return area_plan_views, area_plan_levels
+
+# Get all area plan views and Area Plan Levels
+area_plans = get_all_area_plan_views()
+
+area_plan_levels = area_plans[1]
+area_plan_views = area_plans[0]
+
+# print(area_plan_levels)
+area_plan_levelNames = [level.Name for level in area_plan_levels]
+# print(area_plan_levelNames)
+area_plan_ViewNames = [view.Name for view in area_plan_views]
+# print(area_plan_ViewNames)
+
+# Sort Lines based on Views
+# # Get corressponding Views to place the curves 
+
+getCorrespondingWallCurvesForViews = []
+
+def find_indices(list1, list2):
+    # Create a mapping of values to their indices in list2
+    index_map = {}
+    for index, value in enumerate(list2):
+        if value in index_map:
+            index_map[value].append(index)
+        else:
+            index_map[value] = [index]
+    
+    # Use the mapping to find indices for elements in list1
+    return [index_map[value] for value in list1 if value in index_map]
+
+# area_plan_level_Names = [area_plan_level.Name for area_plan_level in area_plan_levels]
+final_wall_level_Names =  [wall_level.Name for wall_level in finalWallLevels]
+
+basedOnLvlsMatchedIdx = find_indices( area_plan_levelNames, final_wall_level_Names,)
+
+# print(basedOnLvlsMatchedIdx)
+
+sortedAreaLinesByLevel = []
+for indexList in basedOnLvlsMatchedIdx:
+    temp = [finalWallCurves[i] for i in indexList]
+    sortedAreaLinesByLevel.append(temp)
+# print(sortedAreaLinesByLevel)
+
+# sortedAreaPlanesByLevel = []
+# for indexList in basedOnLvlsMatchedIdx:
+#     temp = [finalWallPlanes[i] for i in indexList]
+#     sortedAreaPlanesByLevel.append(temp)
+
+# sortedAreaLevels = []
+# for indexList in basedOnLvlsMatchedIdx:
+#     temp = [finalWallLevels[i] for i in indexList]
+#     sortedAreaLevels.append(temp)
+# print(sortedAreaLevels)
+print(sortedAreaLinesByLevel)
+# print(sortedAreaPlanesByLevel)
+
+countofAreaLinesByLevel = [len(a) for  a in sortedAreaLinesByLevel]
+print(countofAreaLinesByLevel)
+
+# sortedAreaViews = []
+sortedAreaViews = [[item] * count for item, count in zip(area_plan_views, countofAreaLinesByLevel)]
+print(sortedAreaViews)
+
+# Generate Area Lines
+# area_plan_views
+elementlist = []
+for (areaViews, areaCurves) in zip(sortedAreaViews, sortedAreaLinesByLevel):    
+    for(view, curve) in zip(areaViews, areaCurves):
+        transaction = Transaction(doc, "Create Area Boundary Lines")
+        transaction.Start()
+        # o = view.Origin
+        # n = view.ViewDirection
+        # if o and n:
+        #     sketchplane = SketchPlane.Create(doc, Plane.CreateByNormalAndOrigin(n, o))
+        #     doccreation = doc.Create
+        #     # for curve in curves:
+        docCreation = doc.Create
+        checkCurveType = curve.ToString()
+        if curve.ToString() == 'Autodesk.Revit.DB.Line':
+            start_pt = curve.GetEndPoint(0)
+            end_pt = curve.GetEndPoint(1)
+
+            plane = Plane.CreateByNormalAndOrigin(XYZ.BasisZ, start_pt)
+            sketch_plane = SketchPlane.Create(doc, plane)
+
+            new_line = Line.CreateBound(start_pt, end_pt)
+            separator = docCreation.NewAreaBoundaryLine(sketch_plane, new_line, view)
+        
+        # elif curve.ToString() == 'Autodesk.Revit.DB.Arc':
+        #     center = curve.Center
+        #     radius = curve.Radius
+        #     start_angle = curve.GetEndPoint(0).AngleTo(center)
+        #     end_angle = curve.GetEndPoint(1).AngleTo(center)
+
+        #     plane = Plane.CreateByNormalAndOrigin(XYZ.BasisZ, start_pt)
+        #     sketch_plane = SketchPlane.Create(doc, plane)
+
+        #     new_arc = Arc.Create(center, radius, start_angle, end_angle)
+        #     separator = docCreation.NewAreaBoundaryLine(sketch_plane, new_arc, view)
+
+
+
+        else:
+            pass
+        # separator = doccreation.NewAreaBoundaryLine(sketchplane, curve.ToRevitType(), view)
+        elementlist.append(separator)
+        transaction.Commit()
+
+print(elementlist)
+
+#############################################################################################
+
+
+
+
+###########################################################################################################
